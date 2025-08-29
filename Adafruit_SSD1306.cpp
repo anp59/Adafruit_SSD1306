@@ -996,6 +996,59 @@ bool Adafruit_SSD1306::getPixel(int16_t x, int16_t y) {
 */
 uint8_t *Adafruit_SSD1306::getBuffer(void) { return buffer; }
 
+/*!
+    @brief  Clear contents of internal GDDRam (set all pixels to off).
+    @return None (void).
+    @note   immediate effect on display.
+            Clearing the RAM ensures that no uninitialized pixels 
+            become visible during scrolling operations.
+*/
+void Adafruit_SSD1306::clearGddRam(void) {
+  TRANSACTION_START
+  static const uint8_t PROGMEM dlist1[] = {
+      SSD1306_PAGEADDR,
+      0,                  // Page start address
+      0xFF,               // Page end (not really, but works here)
+      SSD1306_COLUMNADDR,
+      0,                  // Column start address
+      127};               // Column end address
+  ssd1306_commandList(dlist1, sizeof(dlist1));
+#if defined(ESP8266)
+  // ESP8266 needs a periodic yield() call to avoid watchdog reset.
+  // With the limited size of SSD1306 displays, and the fast bitrate
+  // being used (1 MHz or more), I think one yield() immediately before
+  // a screen write and one immediately after should cover it.  But if
+  // not, if this becomes a problem, yields() might be added in the
+  // 32-byte transfer condition below.
+  yield();
+#endif
+  uint16_t count = 128*64;
+  if (wire) { // I2C
+    wire->beginTransmission(i2caddr);
+    WIRE_WRITE((uint8_t)0x40);
+    uint16_t bytesOut = 1;
+    while (count--) {
+      if (bytesOut >= WIRE_MAX) {
+        wire->endTransmission();
+        wire->beginTransmission(i2caddr);
+        WIRE_WRITE((uint8_t)0x40);
+        bytesOut = 1;
+      }
+      WIRE_WRITE(0);
+      bytesOut++;
+    }
+    wire->endTransmission();
+  } else { // SPI
+    SSD1306_MODE_DATA
+    while (count--)
+      SPIwrite(0);
+  }
+  TRANSACTION_END
+#if defined(ESP8266)
+  yield();
+#endif
+}
+
 // REFRESH DISPLAY ---------------------------------------------------------
 
 /*!
