@@ -25,8 +25,8 @@
 #define _Adafruit_SSD1306_H_
 
 // ONE of the following three lines must be #defined:
-// #define SSD1306_128_64 ///< DEPRECTAED: old way to specify 128x64 screen
-#define SSD1306_128_32 ///< DEPRECATED: old way to specify 128x32 screen
+#define SSD1306_128_64 ///< DEPRECTAED: old way to specify 128x64 screen
+//# define SSD1306_128_32 ///< DEPRECATED: old way to specify 128x32 screen
 // #define SSD1306_96_16  ///< DEPRECATED: old way to specify 96x16 screen
 // This establishes the screen dimensions in old Adafruit_SSD1306 sketches
 // (NEW CODE SHOULD IGNORE THIS, USE THE CONSTRUCTORS THAT ACCEPT WIDTH
@@ -123,6 +123,10 @@ typedef uint32_t PortMask;
 #define SSD1306_LCDWIDTH 96  ///< DEPRECATED: width w/SSD1306_96_16 defined
 #define SSD1306_LCDHEIGHT 16 ///< DEPRECATED: height w/SSD1306_96_16 defined
 #endif
+#if defined SSD1306_72_40
+#define SSD1306_LCDWIDTH 72  ///< DEPRECATED: width w/SSD1306_72_40 defined
+#define SSD1306_LCDHEIGHT 40 ///< DEPRECATED: height w/SSD1306_72_40 defined
+#endif
 
 /*!
     @brief  Class that stores state and functions for interacting with
@@ -164,6 +168,7 @@ public:
   void ssd1306_command(uint8_t c);
   bool getPixel(int16_t x, int16_t y);
   uint8_t *getBuffer(void);
+  void clearGddRam(void);
 
 protected:
   inline void SPIwrite(uint8_t d) __attribute__((always_inline));

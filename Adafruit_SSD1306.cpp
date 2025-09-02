@@ -572,7 +572,10 @@ bool Adafruit_SSD1306::begin(uint8_t vcs, uint8_t addr, bool reset,
                                           SSD1306_SETMULTIPLEX}; // 0xA8
   ssd1306_commandList(init1, sizeof(init1));
   ssd1306_command1(HEIGHT - 1);
-
+  if ((WIDTH == 72) && (HEIGHT == 40)) {
+    ssd1306_command1(0xAD); // Internal IREF Setting for the 0.42 OLED, see also issue https://github.com/olikraus/u8g2/issues/1047
+    ssd1306_command1(0x30);
+  }
   static const uint8_t PROGMEM init2[] = {SSD1306_SETDISPLAYOFFSET, // 0xD3
                                           0x0,                      // no offset
                                           SSD1306_SETSTARTLINE | 0x0, // line #0
@@ -602,6 +605,9 @@ bool Adafruit_SSD1306::begin(uint8_t vcs, uint8_t addr, bool reset,
   } else if ((WIDTH == 64) && (HEIGHT == 32)) {
     comPins = 0x12; // ada x12
     contrast = (vccstate == SSD1306_EXTERNALVCC) ? 0x10 : 0xCF;
+  } else if ((WIDTH == 72) && (HEIGHT == 40)) { // 0.42 inch display must be defined here to initialize variables comPins and contrast
+    comPins = 0x12; // ada x12
+    contrast = (vccstate == SSD1306_EXTERNALVCC) ? 0x10 : 0xAF; // increase contrast
   } else {
     // Other screen varieties -- TBD
   }
@@ -623,7 +629,10 @@ bool Adafruit_SSD1306::begin(uint8_t vcs, uint8_t addr, bool reset,
   ssd1306_commandList(init5, sizeof(init5));
 
   TRANSACTION_END
-
+  // clear GDDRam for display modes <> 128x64 (SSD1306 native resolution)
+  if ((WIDTH != 128) || (HEIGHT != 64)) {
+    clearGddRam();
+  }
   return true; // Success
 }
 
@@ -987,6 +996,59 @@ bool Adafruit_SSD1306::getPixel(int16_t x, int16_t y) {
 */
 uint8_t *Adafruit_SSD1306::getBuffer(void) { return buffer; }
 
+/*!
+    @brief  Clear contents of internal GDDRam (set all pixels to off).
+    @return None (void).
+    @note   immediate effect on display.
+            Clearing the RAM ensures that no uninitialized pixels 
+            become visible during scrolling operations.
+*/
+void Adafruit_SSD1306::clearGddRam(void) {
+  TRANSACTION_START
+  static const uint8_t PROGMEM dlist1[] = {
+      SSD1306_PAGEADDR,
+      0,                  // Page start address
+      0xFF,               // Page end (not really, but works here)
+      SSD1306_COLUMNADDR,
+      0,                  // Column start address
+      127};               // Column end address
+  ssd1306_commandList(dlist1, sizeof(dlist1));
+#if defined(ESP8266)
+  // ESP8266 needs a periodic yield() call to avoid watchdog reset.
+  // With the limited size of SSD1306 displays, and the fast bitrate
+  // being used (1 MHz or more), I think one yield() immediately before
+  // a screen write and one immediately after should cover it.  But if
+  // not, if this becomes a problem, yields() might be added in the
+  // 32-byte transfer condition below.
+  yield();
+#endif
+  uint16_t count = 128*64;
+  if (wire) { // I2C
+    wire->beginTransmission(i2caddr);
+    WIRE_WRITE((uint8_t)0x40);
+    uint16_t bytesOut = 1;
+    while (count--) {
+      if (bytesOut >= WIRE_MAX) {
+        wire->endTransmission();
+        wire->beginTransmission(i2caddr);
+        WIRE_WRITE((uint8_t)0x40);
+        bytesOut = 1;
+      }
+      WIRE_WRITE(0);
+      bytesOut++;
+    }
+    wire->endTransmission();
+  } else { // SPI
+    SSD1306_MODE_DATA
+    while (count--)
+      SPIwrite(0);
+  }
+  TRANSACTION_END
+#if defined(ESP8266)
+  yield();
+#endif
+}
+
 // REFRESH DISPLAY ---------------------------------------------------------
 
 /*!
@@ -1005,12 +1067,18 @@ void Adafruit_SSD1306::display(void) {
       SSD1306_COLUMNADDR}; // Column start address
   ssd1306_commandList(dlist1, sizeof(dlist1));
 
-  if (WIDTH == 64) {
-    ssd1306_command1(0x20);             // Column start
-    ssd1306_command1(0x20 + WIDTH - 1); // Column end address
-  } else {
-    ssd1306_command1(0);           // Column start
-    ssd1306_command1((WIDTH - 1)); // Column end address
+  switch (WIDTH) {
+    case 64:  // 64x32     
+      ssd1306_command1(32);             // Column start +0x20
+      ssd1306_command1(32 + WIDTH - 1); // Column end address
+      break;
+    case 72:  // 72x40
+      ssd1306_command1(28);           // Column start +0x1C
+      ssd1306_command1(28 + WIDTH - 1); // Column end address    
+      break;
+    default:  // 128x64
+      ssd1306_command1(0);           // Column start +0x00
+      ssd1306_command1(WIDTH - 1); // Column end address    
   }
 
 #if defined(ESP8266)
